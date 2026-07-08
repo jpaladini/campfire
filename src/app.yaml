@@ -1,0 +1,15 @@
+command: ["python", "serve.py"]
+env:
+  # Foundation Model serving endpoint used for cleanup + digest.
+  # Identical across environments; the app authenticates as its own
+  # service principal (injected by Databricks Apps).
+  - name: SERVING_ENDPOINT
+    value: databricks-claude-sonnet-4-5
+  # SQL warehouse that backs the entries/settings Delta tables.
+  # valueFrom references the bundle resource NAME in databricks.yml
+  # (per-workspace secret value), NOT a "scope/key" string.
+  - name: CAMPFIRE_WAREHOUSE_ID
+    valueFrom: campfire_warehouse_id
+  # Catalog.schema for the app tables.
+  - name: CAMPFIRE_SCHEMA
+    value: main.default
