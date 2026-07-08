@@ -1,0 +1,23 @@
+# Campfire — team check-in Databricks App.
+# One target per workspace; this file and src/app.yaml are byte-identical
+# across environments. The ONLY per-environment difference is secret VALUES
+# in each workspace's `campfire` secret scope (see README).
+bundle:
+  name: campfire
+
+targets:
+  dev:  { mode: development, default: true }  # dev mode = name-prefixed, per-user isolated
+  stg:  { mode: production }
+  prod: { mode: production }
+
+resources:
+  apps:
+    campfire:
+      name: campfire
+      description: "Team wins & losses check-in with AI digest"
+      source_code_path: ./src
+      resources:
+        # Named secret resource — referenced by `valueFrom:` in src/app.yaml.
+        # Holds the SQL warehouse id that backs the entries/settings tables.
+        - name: campfire_warehouse_id
+          secret: { scope: campfire, key: warehouse_id, permission: READ }

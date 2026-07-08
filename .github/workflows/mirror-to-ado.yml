@@ -1,0 +1,50 @@
+# Mirror pushes from GitHub → Azure DevOps Repos.
+# On every push (except to the protected dev/stg/prod branches), force-push the
+# branch to the same-named branch in Azure DevOps. PRs into dev/stg/prod are then
+# opened *inside* ADO — so branch protection and the deploy pipeline stay in control.
+#
+# NOTE: this file is the ONLY GitHub-specific piece of the delivery pipeline.
+# When this repo moves standalone into corporate ADO, delete .github/ — nothing
+# else changes.
+name: Mirror to Azure DevOps
+
+on:
+  push:
+    branches-ignore: [dev, stg, prod]
+
+concurrency:
+  group: mirror-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push branch to Azure DevOps
+        env:
+          ADO_PAT: ${{ secrets.ADO_PAT }}
+          ADO_REPO_URL: ${{ secrets.ADO_REPO_URL }}
+          BRANCH: ${{ github.ref_name }}
+          GIT_TERMINAL_PROMPT: "0"   # fail fast instead of prompting for a username
+        run: |
+          set -euo pipefail
+          # Strip stray whitespace/newlines a secret may have been pasted with.
+          pat="$(printf '%s' "${ADO_PAT:-}" | tr -d '[:space:]')"
+          url="$(printf '%s' "${ADO_REPO_URL:-}" | tr -d '[:space:]')"
+          if [ -z "$pat" ] || [ -z "$url" ]; then
+            echo "ADO_PAT / ADO_REPO_URL secrets not set — skipping mirror."; exit 0
+          fi
+          case "$url" in
+            https://*) rest="${url#https://}" ;;
+            *) echo "ADO_REPO_URL must be an https:// URL"; exit 1 ;;
+          esac
+          rest="${rest#*@}"; rest="${rest%/}"
+          echo "::add-mask::$pat"
+          # ADO accepts the PAT as the password with any non-empty username.
+          git push --force "https://pat:${pat}@${rest}" "HEAD:refs/heads/${BRANCH}"
+          echo "Mirrored '${BRANCH}' → Azure DevOps (${rest})."

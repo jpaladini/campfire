@@ -1,0 +1,52 @@
+# Deploy to the matching Databricks workspace on merge to a protected branch.
+# Branch name == bundle target == environment.
+trigger:
+  branches:
+    include: [dev, stg, prod]
+
+pr: none   # PR validation is wired via branch policy → a separate validate-only pipeline
+
+pool: { vmImage: ubuntu-latest }
+
+variables:
+  - name: targetEnv
+    value: $(Build.SourceBranchName)   # dev | stg | prod → bundle target
+
+steps:
+  - checkout: self
+
+  - script: |
+      set -euo pipefail
+      case "$(targetEnv)" in
+        dev|stg|prod) echo "Deploying to: $(targetEnv)";;
+        *) echo "Refusing to deploy from branch '$(targetEnv)'"; exit 1;;
+      esac
+    displayName: Guard — branch must be dev/stg/prod
+
+  - task: NodeTool@0
+    inputs: { versionSpec: "20.x" }
+    displayName: Use Node 20
+
+  - script: |
+      set -euo pipefail
+      cd frontend && npm ci && npm run build
+    displayName: Build frontend (→ src/static)
+
+  - script: |
+      set -euo pipefail
+      curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+      databricks version
+    displayName: Install Databricks CLI
+
+  - script: |
+      set -euo pipefail
+      databricks bundle validate -t "$(targetEnv)"
+      databricks bundle deploy   -t "$(targetEnv)"
+      databricks bundle run campfire -t "$(targetEnv)"
+    displayName: Deploy + run ($(targetEnv))
+    env:
+      # OAuth service-principal (M2M) auth — set these as PIPELINE VARIABLES
+      # (Pipelines → Edit → Variables; mark CLIENT_SECRET as secret).
+      DATABRICKS_HOST: $(DATABRICKS_HOST)
+      DATABRICKS_CLIENT_ID: $(DATABRICKS_CLIENT_ID)
+      DATABRICKS_CLIENT_SECRET: $(DATABRICKS_CLIENT_SECRET)
