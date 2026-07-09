@@ -83,14 +83,19 @@ branches. The only per-environment difference is secret **values**.
 ### One-time setup per workspace
 
 ```bash
-# 1. Secret scope + the warehouse that backs the app tables
+# Required — grant the app's service principal access (after first deploy creates it):
+#   - CAN_QUERY on the serving endpoint (databricks-claude-sonnet-4-5)
+
+# Optional — Delta persistence (otherwise entries are ephemeral local storage).
+# 1. Secret scope + the warehouse that backs the app tables:
 databricks secrets create-scope campfire -p <env-profile>
 databricks secrets put-secret campfire warehouse_id --string-value "<sql-warehouse-id>" -p <env-profile>
-
-# 2. Grant the app's service principal access (after first deploy creates it):
-#    - CAN_QUERY on the serving endpoint (databricks-claude-sonnet-4-5)
-#    - CAN_USE on the SQL warehouse
-#    - USE CATALOG/SCHEMA + CREATE TABLE on CAMPFIRE_SCHEMA (default main.default)
+#    IMPORTANT: the scope creator gets sole access — also grant the PIPELINE's
+#    service principal, or the deploy fails with "secret does not exist":
+databricks secrets put-acl campfire <pipeline-sp-application-id> MANAGE -p <env-profile>
+# 2. Uncomment the secret resource in databricks.yml + CAMPFIRE_WAREHOUSE_ID in src/app.yaml.
+# 3. Grant the APP's service principal (after deploy): CAN_USE on the warehouse,
+#    USE CATALOG/SCHEMA + CREATE TABLE + SELECT/MODIFY on CAMPFIRE_SCHEMA.
 ```
 
 ### One-time setup, ADO
