@@ -18,6 +18,7 @@ logger = logging.getLogger("campfire.storage")
 SCHEMA = os.environ.get("CAMPFIRE_SCHEMA", "main.default")
 ENTRIES_TABLE = f"{SCHEMA}.campfire_entries"
 SETTINGS_TABLE = f"{SCHEMA}.campfire_settings"
+DIGESTS_TABLE = f"{SCHEMA}.campfire_digests"
 
 DEFAULT_SETTINGS = {
     "reminders": True,
@@ -59,6 +60,15 @@ class LocalStore:
         with self._lock:
             return list(self._data["entries"][:limit])
 
+    def resolve_entry(self, entry_id: str, author: str) -> bool:
+        with self._lock:
+            for e in self._data["entries"]:
+                if e["id"] == entry_id and e["author"] == author and e.get("open"):
+                    e["open"] = False
+                    self._flush()
+                    return True
+        return False
+
     def get_settings(self, user_id: str) -> dict:
         return {**DEFAULT_SETTINGS, **self._data["settings"].get(user_id, {})}
 
@@ -66,6 +76,9 @@ class LocalStore:
         with self._lock:
             self._data["settings"][user_id] = settings
             self._flush()
+
+    def get_pinned_digest(self, period: str) -> dict | None:
+        return None  # pinned digests come from the scheduled job (Delta only)
 
 
 class WarehouseStore:
@@ -134,6 +147,34 @@ class WarehouseStore:
             }
             for r in rows
         ]
+
+    def resolve_entry(self, entry_id: str, author: str) -> bool:
+        rows = self._sql(
+            f"SELECT COUNT(*) FROM {ENTRIES_TABLE} WHERE id = :id AND author = :author AND open",
+            {"id": entry_id, "author": author},
+        )
+        if not rows or int(rows[0][0]) == 0:
+            return False
+        self._sql(
+            f"UPDATE {ENTRIES_TABLE} SET open = false WHERE id = :id AND author = :author",
+            {"id": entry_id, "author": author},
+        )
+        return True
+
+    def get_pinned_digest(self, period: str) -> dict | None:
+        try:
+            rows = self._sql(
+                f"""SELECT range_label, text,
+                           date_format(created_at, "yyyy-MM-dd'T'HH:mm:ssxxx")
+                    FROM {DIGESTS_TABLE} WHERE period = :period
+                    ORDER BY created_at DESC LIMIT 1""",
+                {"period": period},
+            )
+        except Exception:
+            return None  # table doesn't exist until the digest job first runs
+        if not rows:
+            return None
+        return {"range": rows[0][0], "text": rows[0][1], "createdAt": rows[0][2]}
 
     def get_settings(self, user_id: str) -> dict:
         rows = self._sql(

@@ -5,12 +5,18 @@ env:
   # service principal (injected by Databricks Apps).
   - name: SERVING_ENDPOINT
     value: databricks-claude-sonnet-4-5
-  # SQL warehouse that backs the entries/settings Delta tables (optional —
-  # unset means ephemeral local storage). To enable, uncomment together with
-  # the secret resource in databricks.yml. valueFrom references the bundle
-  # resource NAME, NOT a "scope/key" string.
-  # - name: CAMPFIRE_WAREHOUSE_ID
-  #   valueFrom: campfire_warehouse_id
+  # SQL warehouse that backs the entries/settings Delta tables.
+  # valueFrom references the bundle resource NAME in databricks.yml
+  # (per-workspace secret value), NOT a "scope/key" string.
+  - name: CAMPFIRE_WAREHOUSE_ID
+    valueFrom: campfire_warehouse_id
   # Catalog.schema for the app tables.
   - name: CAMPFIRE_SCHEMA
     value: main.default
+  # Now Shipping: Azure DevOps project whose PR activity feeds the card.
+  - name: ADO_ORG_URL
+    value: https://dev.azure.com/jpaladini85
+  - name: ADO_PROJECT
+    value: home
+  - name: ADO_PAT
+    valueFrom: campfire_ado_pat

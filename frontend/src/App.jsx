@@ -44,6 +44,7 @@ export default function App() {
   const [feed, setFeed] = useState([])
   const [stats, setStats] = useState({ wins: 0, losses: 0, helpOpen: 0, learnings: 0 })
   const [digest, setDigest] = useState({ range: '', text: '' })
+  const [digestLoading, setDigestLoading] = useState(true)
   const [shipping, setShipping] = useState(null)
   const [filter, setFilter] = useState('All')
   const [justSaved, setJustSaved] = useState(false)
@@ -60,7 +61,11 @@ export default function App() {
 
   const refresh = useCallback((p) => {
     api.getFeed(p).then(({ entries, stats }) => { setFeed(entries); setStats(stats) }).catch(console.error)
-    api.getDigest(p).then(setDigest).catch(console.error)
+    setDigestLoading(true)
+    api.getDigest(p)
+      .then(setDigest)
+      .catch(console.error)
+      .finally(() => setDigestLoading(false))
   }, [])
 
   useEffect(() => { refresh(period) }, [period, refresh])
@@ -207,8 +212,14 @@ export default function App() {
 
         <section className="pulse-col">
           <div className="digest-card">
-            <div className="digest-eyebrow">✦ AI DIGEST · {digest.range}</div>
-            <p className="digest-text">{digest.text}</p>
+            <div className="digest-eyebrow">✦ AI DIGEST{digest.range ? ` · ${digest.range}` : ''}</div>
+            {digestLoading ? (
+              <div className="digest-skeleton" aria-label="Generating digest…">
+                <div className="skeleton-line" /><div className="skeleton-line" /><div className="skeleton-line short" />
+              </div>
+            ) : (
+              <p className="digest-text">{digest.text}</p>
+            )}
           </div>
 
           {shipping && (
@@ -216,7 +227,9 @@ export default function App() {
               <div className="shipping-head">
                 <div className="shipping-eyebrow">✦ NOW SHIPPING</div>
                 <span className="shipping-sync">
-                  auto-summarized from Git &amp; work items · synced {shipping.syncedMinutesAgo}m ago
+                  {shipping.sample
+                    ? 'sample data — Now Shipping connects once the ADO secret is set'
+                    : `auto-summarized from Git & work items · synced ${shipping.syncedMinutesAgo}m ago`}
                 </span>
               </div>
               <div className="shipping-rows">
@@ -270,6 +283,13 @@ export default function App() {
                   <div className="entry-meta">
                     {e.author} · <span className="entry-cat" style={{ color: CAT_INFO[e.category].color }}>{CAT_INFO[e.category].label}</span> · {timeAgo(e.createdAt)}
                     {e.category === 'help' && e.open && <span className="entry-open"> · open</span>}
+                    {e.category === 'help' && e.open && me && e.author === me.name && (
+                      <button
+                        className="resolve-btn"
+                        title="Mark this help request resolved"
+                        onClick={() => api.postResolve(e.id).then(() => refresh(period)).catch(console.error)}
+                      >✓ resolve</button>
+                    )}
                   </div>
                   <div className="entry-text">{e.text}</div>
                 </div>

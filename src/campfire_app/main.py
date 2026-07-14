@@ -1,9 +1,8 @@
 import logging
-import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -11,6 +10,7 @@ from pydantic import BaseModel
 from . import storage
 from .ai import AI
 from .identity import current_user
+from .shipping import ShippingSync
 
 logging.basicConfig(level=logging.INFO)
 
@@ -19,20 +19,10 @@ api = APIRouter(prefix="/api")
 
 store = storage.get_store()
 ai = AI()
+shipping_sync = ShippingSync()
 
 PERIODS = ("Day", "Week", "Month", "Year")
 CATEGORIES = ("win", "loss", "help", "learned")
-
-# Placeholder until the Git / work-item sync job lands; served from the
-# backend so the frontend contract doesn't change when it does.
-SHIPPING_SAMPLE = {
-    "syncedMinutesAgo": 12,
-    "rows": [
-        {"color": "#7a8450", "project": "Ingestion pipeline v2", "status": "3 PRs merged this week, 1 in review (Marcus, Jordan)"},
-        {"color": "#b8912f", "project": "Unity Catalog permissions", "status": "1 PR blocked on review 2 days (Priya)"},
-        {"color": "#6b6555", "project": "Latency investigation", "status": "2 open work items, no commits yet (Dana)"},
-    ],
-}
 
 
 def period_start(period: str, now: datetime) -> datetime:
@@ -154,8 +144,10 @@ def cleanup(body: CleanupBody):
     return {"text": ai.cleanup(body.text)}
 
 
-_digest_cache: dict[str, tuple[float, dict]] = {}
-DIGEST_TTL_SECONDS = 600
+# Digest cache, keyed by what the digest is ABOUT: the period's range label,
+# entry count and newest entry id. No TTL — a digest is recomputed only when
+# the team log changes (save/resolve shifts the key), never per view.
+_digest_cache: dict[str, dict] = {}
 
 
 @api.get("/digest")
@@ -163,19 +155,40 @@ def digest(period: str = "Week"):
     period = period if period in PERIODS else "Week"
     now = datetime.now(timezone.utc)
     entries = entries_in_period(period)
-    cache_key = f"{period}:{len(entries)}:{entries[0]['id'] if entries else '-'}"
-    hit = _digest_cache.get(cache_key)
-    if hit and time.time() - hit[0] < DIGEST_TTL_SECONDS:
-        return hit[1]
     label = range_label(period, now)
+    open_count = sum(1 for e in entries if e.get("open"))
+    key = f"{label}:{len(entries)}:{open_count}:{entries[0]['id'] if entries else '-'}"
+
+    hit = _digest_cache.get(period)
+    if hit and hit["key"] == key:
+        return hit["result"]
+
+    # Prefer the scheduled job's pinned digest when it postdates the newest
+    # entry (i.e. it already saw everything the live view sees).
+    pinned = store.get_pinned_digest(period)
+    if pinned and pinned["range"] == label:
+        newest = entries[0]["createdAt"] if entries else None
+        if not newest or pinned["createdAt"] >= newest:
+            result = {"range": pinned["range"], "text": pinned["text"], "pinned": True}
+            _digest_cache[period] = {"key": key, "result": result}
+            return result
+
     result = {"range": label, "text": ai.digest(entries, period, label)}
-    _digest_cache[cache_key] = (time.time(), result)
+    _digest_cache[period] = {"key": key, "result": result}
     return result
+
+
+@api.post("/entries/{entry_id}/resolve")
+def resolve_entry(entry_id: str, request: Request):
+    user = current_user(request)
+    if not store.resolve_entry(entry_id, user["name"]):
+        raise HTTPException(status_code=404, detail="Not your open help entry")
+    return {"resolved": entry_id}
 
 
 @api.get("/shipping")
 def shipping():
-    return SHIPPING_SAMPLE
+    return shipping_sync.get()
 
 
 @api.get("/settings")

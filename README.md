@@ -38,9 +38,18 @@ azure-pipelines.yml  Deploy on merge to dev/stg/prod (branch == target == env)
   app auto-creates and uses Delta tables `campfire_entries` /
   `campfire_settings` in `CAMPFIRE_SCHEMA`. Otherwise it falls back to a local
   JSON file (ephemeral — dev/demo only).
-- **Now Shipping** is sample data served from the backend for now; the
-  Git/work-item sync job is the next milestone and won't change the frontend
-  contract.
+- **Now Shipping** summarizes recent pull-request activity from the Azure
+  DevOps project set in `src/app.yaml` (`ADO_ORG_URL`/`ADO_PROJECT`, PAT via
+  the `campfire/ado_pat` secret): merged-this-week, in-review, and
+  blocked->2-days buckets per repo, cached 10 min. Unconfigured or
+  unreachable → clearly-flagged sample rows. Work items are a future add.
+- **Digest caching**: digests are recomputed only when the team log changes
+  (save/resolve), never per view. A scheduled bundle job
+  (`campfire-weekly-digest`, Monday 06:00 UTC) additionally pins the weekly
+  digest to `campfire_digests`; the app serves the pin while it postdates
+  the newest entry.
+- **Help lifecycle**: help entries are created open; the author sees a
+  "✓ resolve" action on their own open items.
 
 ## Local development
 
@@ -80,23 +89,25 @@ Promotion is a pure code merge: `dev` → `stg` → `prod`. Branch name == bundl
 target == environment; the bundle and `src/app.yaml` are byte-identical across
 branches. The only per-environment difference is secret **values**.
 
-### One-time setup per workspace
+### One-time setup per workspace (BEFORE the first deploy)
 
 ```bash
-# Required — grant the app's service principal access (after first deploy creates it):
-#   - CAN_QUERY on the serving endpoint (databricks-claude-sonnet-4-5)
-
-# Optional — Delta persistence (otherwise entries are ephemeral local storage).
-# 1. Secret scope + the warehouse that backs the app tables:
+# 1. Secret scope + values the bundle requires:
 databricks secrets create-scope campfire -p <env-profile>
 databricks secrets put-secret campfire warehouse_id --string-value "<sql-warehouse-id>" -p <env-profile>
-#    IMPORTANT: the scope creator gets sole access — also grant the PIPELINE's
+databricks secrets put-secret campfire ado_pat --string-value "<ado-code-read-pat>" -p <env-profile>
+# 2. IMPORTANT: the scope creator gets sole access — also grant the PIPELINE's
 #    service principal, or the deploy fails with "secret does not exist":
 databricks secrets put-acl campfire <pipeline-sp-application-id> MANAGE -p <env-profile>
-# 2. Uncomment the secret resource in databricks.yml + CAMPFIRE_WAREHOUSE_ID in src/app.yaml.
-# 3. Grant the APP's service principal (after deploy): CAN_USE on the warehouse,
-#    USE CATALOG/SCHEMA + CREATE TABLE + SELECT/MODIFY on CAMPFIRE_SCHEMA.
 ```
+
+After the first deploy (the app + job identities now exist):
+
+- App service principal: CAN_QUERY on the serving endpoint, CAN_USE on the
+  SQL warehouse, `USE CATALOG` + `USE SCHEMA, CREATE TABLE, SELECT, MODIFY`
+  on `CAMPFIRE_SCHEMA` (default `main.default`).
+- The digest job runs as the pipeline SP: same schema grants + CAN_QUERY on
+  the serving endpoint.
 
 ### One-time setup, ADO
 
