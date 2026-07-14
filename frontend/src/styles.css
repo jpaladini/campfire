@@ -222,6 +222,43 @@ textarea:focus, input:focus, select:focus {
   background: #fff; color: var(--muted);
 }
 .filter-btn.active { background: var(--olive); color: #fff; border-color: var(--olive); }
+.mine-toggle { margin-left: 10px; border-style: dashed; }
+.mine-toggle.active { background: var(--ochre); border-color: var(--ochre); border-style: solid; }
+
+.date-filter { display: inline-flex; align-items: center; gap: 4px; }
+.date-filter input {
+  font-size: 11.5px; padding: 3px 8px; border-radius: 999px;
+  border: 1px solid var(--border-pill); background: #fff; color: var(--secondary);
+  font-family: system-ui, sans-serif;
+}
+.date-clear {
+  border: none; background: transparent; cursor: pointer;
+  color: var(--rust); font-size: 12px; padding: 2px;
+}
+
+.edit-btn {
+  margin-left: 8px; font-size: 11px; font-weight: 600; cursor: pointer;
+  padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border-pill);
+  background: #fff; color: var(--secondary);
+}
+.edit-btn:hover { background: var(--strip-bg); border-color: var(--secondary); }
+.edit-box { margin-top: 4px; display: flex; flex-direction: column; gap: 6px; }
+.edit-box textarea {
+  width: 100%; border: 1px solid var(--border-input); border-radius: 9px;
+  padding: 8px 10px; font-size: 13.5px; line-height: 1.45;
+  background: #fff; color: var(--ink); resize: vertical;
+}
+.edit-actions { display: flex; gap: 8px; }
+.edit-save {
+  border: none; background: var(--olive); color: #fff; font-size: 12px;
+  font-weight: 600; padding: 5px 14px; border-radius: 8px; cursor: pointer;
+}
+.edit-save:disabled { opacity: .5; cursor: default; }
+.edit-save:hover:not(:disabled) { background: var(--olive-hover); }
+.edit-cancel {
+  border: 1px solid var(--border-pill); background: #fff; color: var(--muted);
+  font-size: 12px; font-weight: 600; padding: 5px 14px; border-radius: 8px; cursor: pointer;
+}
 
 .feed { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; max-height: 560px; }
 .entry-card {

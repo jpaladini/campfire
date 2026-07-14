@@ -69,6 +69,15 @@ class LocalStore:
                     return True
         return False
 
+    def update_entry(self, entry_id: str, author: str, text: str) -> bool:
+        with self._lock:
+            for e in self._data["entries"]:
+                if e["id"] == entry_id and e["author"] == author:
+                    e["text"] = text
+                    self._flush()
+                    return True
+        return False
+
     def get_settings(self, user_id: str) -> dict:
         return {**DEFAULT_SETTINGS, **self._data["settings"].get(user_id, {})}
 
@@ -158,6 +167,19 @@ class WarehouseStore:
         self._sql(
             f"UPDATE {ENTRIES_TABLE} SET open = false WHERE id = :id AND author = :author",
             {"id": entry_id, "author": author},
+        )
+        return True
+
+    def update_entry(self, entry_id: str, author: str, text: str) -> bool:
+        rows = self._sql(
+            f"SELECT COUNT(*) FROM {ENTRIES_TABLE} WHERE id = :id AND author = :author",
+            {"id": entry_id, "author": author},
+        )
+        if not rows or int(rows[0][0]) == 0:
+            return False
+        self._sql(
+            f"UPDATE {ENTRIES_TABLE} SET text = :text WHERE id = :id AND author = :author",
+            {"id": entry_id, "author": author, "text": text},
         )
         return True
 

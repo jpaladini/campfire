@@ -69,19 +69,22 @@ class AI:
         out = self._chat(CLEANUP_SYSTEM, text, max_tokens=300)
         return out if out else local_cleanup(text)
 
-    def digest(self, entries: list[dict], period: str, range_label: str) -> str:
+    def digest(self, entries: list[dict], period: str, range_label: str, focus: str | None = None) -> str:
+        focus_words = {"win": "wins", "loss": "losses", "help": "help requests", "learned": "learnings"}
         if not entries:
+            if focus:
+                return f"No {focus_words[focus]} logged this {period.lower()} yet."
             return f"Nothing logged yet this {period.lower()} — the digest will fill in as check-ins land."
         log = "\n".join(
             f"- [{e['category']}{' · OPEN' if e.get('open') else ''}] {e['author']}: {e['text']}"
             for e in entries[:80]
         )
-        out = self._chat(
-            DIGEST_SYSTEM,
-            f"Period: this {period.lower()} ({range_label}).\nTeam check-in log:\n{log}",
-            max_tokens=400,
-        )
-        return out if out else heuristic_digest(entries, period)
+        prompt = f"Period: this {period.lower()} ({range_label}).\n"
+        if focus:
+            prompt += f"Write the digest about the team's {focus_words[focus]} ONLY — themes, notable items, and for help requests whether they are still open.\n"
+        prompt += f"Team check-in log:\n{log}"
+        out = self._chat(DIGEST_SYSTEM, prompt, max_tokens=400)
+        return out if out else heuristic_digest(entries, period, focus)
 
 
 def local_cleanup(t: str) -> str:
@@ -105,7 +108,17 @@ def local_cleanup(t: str) -> str:
     return s
 
 
-def heuristic_digest(entries: list[dict], period: str) -> str:
+def heuristic_digest(entries: list[dict], period: str, focus: str | None = None) -> str:
+    if focus:
+        singular = {"win": "win", "loss": "loss", "help": "help request", "learned": "learning"}
+        plural = {"win": "wins", "loss": "losses", "help": "help requests", "learned": "learnings"}
+        word = singular[focus] if len(entries) == 1 else plural[focus]
+        who = ", ".join(sorted({e["author"].split()[0] for e in entries}))
+        line = f"This {period.lower()}: {len(entries)} {word} logged ({who})."
+        if focus == "help":
+            open_n = sum(1 for e in entries if e.get("open"))
+            line += f" {open_n} still open." if open_n else " All resolved."
+        return line
     wins = sum(1 for e in entries if e["category"] == "win")
     losses = sum(1 for e in entries if e["category"] == "loss")
     open_help = [e for e in entries if e["category"] == "help" and e.get("open")]
