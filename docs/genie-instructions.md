@@ -1,13 +1,33 @@
 # Campfire — Genie Space Instructions
 
-Paste everything below the cut line into the **Instructions** panel of a
-Databricks Genie space, and add the table `main.default.campfire_entries`
-to the space's data. (If `CAMPFIRE_SCHEMA` was changed in `src/app.yaml`,
-substitute that catalog.schema everywhere.)
+## Setting this up in a new (e.g. corporate) workspace
+
+Work through this checklist once per workspace before creating the space:
+
+1. **Enable Delta persistence first — without it there is NO table for Genie
+   to query.** Campfire ships with persistence off (entries live in
+   app-local ephemeral storage). Enable it as described in the README:
+   create the `campfire` secret scope with `warehouse_id`, `put-acl` the
+   pipeline service principal, uncomment the secret resource in
+   `databricks.yml` and `CAMPFIRE_WAREHOUSE_ID` in `src/app.yaml`, deploy,
+   and grant the app SP warehouse + schema rights. The
+   `campfire_entries` table is auto-created on the first save in the app.
+2. **Pick the catalog.schema.** Set `CAMPFIRE_SCHEMA` in `src/app.yaml` to
+   your governed location (corporate workspaces rarely allow
+   `main.default`). Then replace every `main.default.campfire_entries`
+   below with `<your_catalog>.<your_schema>.campfire_entries`.
+3. **Create the space:** New → Genie space → add ONLY the
+   `campfire_entries` table → choose a SQL warehouse your team can use →
+   paste everything below the cut line into the **Instructions** panel.
+4. **Access:** Genie respects Unity Catalog permissions — give your team
+   `SELECT` on the table (or the space runs as a service principal with
+   it, per your governance model).
 
 Do NOT add `campfire_settings` to the space — it holds per-user app
 preferences (including who posts losses anonymously) and has no analytic
 value.
+
+---
 
 ---
 

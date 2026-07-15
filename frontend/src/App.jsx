@@ -44,8 +44,12 @@ export default function App() {
   const [feed, setFeed] = useState([])
   const [stats, setStats] = useState({ wins: 0, losses: 0, helpOpen: 0, learnings: 0 })
   const [digest, setDigest] = useState({ range: '', text: '' })
+  const [digestLoading, setDigestLoading] = useState(true)
   const [shipping, setShipping] = useState(null)
   const [filter, setFilter] = useState('All')
+  const [mineOnly, setMineOnly] = useState(false)
+  const [dateFilter, setDateFilter] = useState('')
+  const [editing, setEditing] = useState(null) // { id, text }
   const [justSaved, setJustSaved] = useState(false)
   const [saving, setSaving] = useState(false)
   const timers = useRef([])
@@ -58,12 +62,25 @@ export default function App() {
     api.getShipping().then(setShipping).catch(console.error)
   }, [])
 
-  const refresh = useCallback((p) => {
-    api.getFeed(p).then(({ entries, stats }) => { setFeed(entries); setStats(stats) }).catch(console.error)
-    api.getDigest(p).then(setDigest).catch(console.error)
+  const refreshFeed = useCallback((p, mine, date) => {
+    api.getFeed(p, mine, date).then(({ entries, stats }) => { setFeed(entries); setStats(stats) }).catch(console.error)
   }, [])
 
-  useEffect(() => { refresh(period) }, [period, refresh])
+  const refreshDigest = useCallback((p, f, mine, date) => {
+    setDigestLoading(true)
+    api.getDigest(p, f, mine, date)
+      .then(setDigest)
+      .catch(console.error)
+      .finally(() => setDigestLoading(false))
+  }, [])
+
+  const refresh = useCallback((p, f, mine, date) => {
+    refreshFeed(p, mine, date)
+    refreshDigest(p, f, mine, date)
+  }, [refreshFeed, refreshDigest])
+
+  useEffect(() => { refreshFeed(period, mineOnly, dateFilter) }, [period, mineOnly, dateFilter, refreshFeed])
+  useEffect(() => { refreshDigest(period, filter, mineOnly, dateFilter) }, [period, filter, mineOnly, dateFilter, refreshDigest])
 
   const setField = (key, i, patch) =>
     setFields((f) => ({ ...f, [key]: f[key].map((it, j) => (j === i ? { ...it, ...patch } : it)) }))
@@ -94,7 +111,7 @@ export default function App() {
       setFields(emptyFields())
       setJustSaved(true)
       timers.current.push(setTimeout(() => setJustSaved(false), 2500))
-      refresh(period)
+      refresh(period, filter, mineOnly, dateFilter)
     } catch (e) {
       console.error(e)
     } finally {
@@ -207,8 +224,17 @@ export default function App() {
 
         <section className="pulse-col">
           <div className="digest-card">
-            <div className="digest-eyebrow">✦ AI DIGEST · {digest.range}</div>
-            <p className="digest-text">{digest.text}</p>
+            <div className="digest-eyebrow">
+              ✦ AI DIGEST{digest.range ? ` · ${digest.range}` : ''}
+              {filter !== 'All' ? ` · ${filter.toUpperCase()}` : ''}{mineOnly ? ' · JUST ME' : ''}
+            </div>
+            {digestLoading ? (
+              <div className="digest-skeleton" aria-label="Generating digest…">
+                <div className="skeleton-line" /><div className="skeleton-line" /><div className="skeleton-line short" />
+              </div>
+            ) : (
+              <p className="digest-text">{digest.text}</p>
+            )}
           </div>
 
           {shipping && (
@@ -216,7 +242,9 @@ export default function App() {
               <div className="shipping-head">
                 <div className="shipping-eyebrow">✦ NOW SHIPPING</div>
                 <span className="shipping-sync">
-                  auto-summarized from Git &amp; work items · synced {shipping.syncedMinutesAgo}m ago
+                  {shipping.sample
+                    ? 'sample data — Now Shipping connects once the ADO secret is set'
+                    : `auto-summarized from Git & work items · synced ${shipping.syncedMinutesAgo}m ago`}
                 </span>
               </div>
               <div className="shipping-rows">
@@ -259,6 +287,24 @@ export default function App() {
                   {f === 'Help' && openCount ? `Help · ${openCount}` : f}
                 </button>
               ))}
+              <button
+                className={`filter-btn mine-toggle${mineOnly ? ' active' : ''}`}
+                title="Show only my entries"
+                onClick={() => setMineOnly((m) => !m)}
+              >
+                Just me
+              </button>
+              <span className="date-filter">
+                <input
+                  type="date"
+                  value={dateFilter}
+                  title="Show a specific day"
+                  onChange={(e) => setDateFilter(e.target.value)}
+                />
+                {dateFilter && (
+                  <button className="date-clear" title="Clear date filter" onClick={() => setDateFilter('')}>✕</button>
+                )}
+              </span>
             </div>
           </div>
 
@@ -270,8 +316,45 @@ export default function App() {
                   <div className="entry-meta">
                     {e.author} · <span className="entry-cat" style={{ color: CAT_INFO[e.category].color }}>{CAT_INFO[e.category].label}</span> · {timeAgo(e.createdAt)}
                     {e.category === 'help' && e.open && <span className="entry-open"> · open</span>}
+                    {e.category === 'help' && e.open && me && e.author === me.name && (
+                      <button
+                        className="resolve-btn"
+                        title="Mark this help request resolved"
+                        onClick={() => api.postResolve(e.id).then(() => refresh(period, filter, mineOnly, dateFilter)).catch(console.error)}
+                      >✓ resolve</button>
+                    )}
+                    {me && e.author === me.name && editing?.id !== e.id && (
+                      <button
+                        className="edit-btn"
+                        title="Edit this entry"
+                        onClick={() => setEditing({ id: e.id, text: e.text })}
+                      >✎ edit</button>
+                    )}
                   </div>
-                  <div className="entry-text">{e.text}</div>
+                  {editing?.id === e.id ? (
+                    <div className="edit-box">
+                      <textarea
+                        rows={2}
+                        value={editing.text}
+                        autoFocus
+                        onChange={(ev) => setEditing({ id: e.id, text: ev.target.value })}
+                      />
+                      <div className="edit-actions">
+                        <button
+                          className="edit-save"
+                          disabled={!editing.text.trim()}
+                          onClick={() =>
+                            api.putEntry(e.id, editing.text)
+                              .then(() => { setEditing(null); refresh(period, filter, mineOnly, dateFilter) })
+                              .catch(console.error)
+                          }
+                        >Save</button>
+                        <button className="edit-cancel" onClick={() => setEditing(null)}>Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="entry-text">{e.text}</div>
+                  )}
                 </div>
               </div>
             ))}

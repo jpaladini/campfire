@@ -1,7 +1,8 @@
 # Campfire — team check-in Databricks App.
 # One target per workspace; this file and src/app.yaml are byte-identical
 # across environments. The ONLY per-environment difference is secret VALUES
-# in each workspace's `campfire` secret scope (see README).
+# in each workspace's `campfire` secret scope (see README, incl. the
+# put-acl the PIPELINE service principal needs on that scope).
 bundle:
   name: campfire
 
@@ -11,17 +12,33 @@ targets:
   prod: { mode: production }
 
 resources:
+  jobs:
+    campfire_digest_job:
+      name: campfire-weekly-digest
+      # Monday 06:00 UTC. The in-app "Digest lands on" setting is a per-user
+      # display preference; the team-wide pin lands on this cron.
+      schedule: { quartz_cron_expression: "0 0 6 ? * MON", timezone_id: UTC, pause_status: UNPAUSED }
+      tasks:
+        - task_key: generate_digest
+          environment_key: default
+          spark_python_task:
+            python_file: ./jobs/generate_digest.py
+            parameters: ["main.default", "databricks-claude-sonnet-4-5"]
+      environments:
+        - environment_key: default
+          spec: { client: "2" }
+
   apps:
     campfire:
       name: campfire
       description: "Team wins & losses check-in with AI digest"
       source_code_path: ./src
-      # Delta-backed persistence (optional): create the per-workspace secret
-      # first (databricks secrets create-scope campfire && databricks secrets
-      # put-secret campfire warehouse_id --string-value <id>, then put-acl for
-      # the pipeline SP), and uncomment this block plus the matching
-      # CAMPFIRE_WAREHOUSE_ID env in src/app.yaml. Without it the app uses an
-      # ephemeral local store (entries lost on app restart).
-      # resources:
-      #   - name: campfire_warehouse_id
-      #     secret: { scope: campfire, key: warehouse_id, permission: READ }
+      resources:
+        # Named secret resources — referenced by `valueFrom:` in src/app.yaml.
+        # Required per-workspace secrets (scope `campfire`):
+        #   warehouse_id — SQL warehouse backing the Delta tables
+        #   ado_pat      — Code(Read) PAT for the Now Shipping sync
+        - name: campfire_warehouse_id
+          secret: { scope: campfire, key: warehouse_id, permission: READ }
+        - name: campfire_ado_pat
+          secret: { scope: campfire, key: ado_pat, permission: READ }
